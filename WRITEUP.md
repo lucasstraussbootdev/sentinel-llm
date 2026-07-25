@@ -155,16 +155,20 @@ Four scenarios, each targeting a specific architectural assumption
 3. **Multi-turn trust-building escalation** — same mechanism, same fix,
    same live validation.
 4. **Prompt injection against the judge itself** — the most important
-   negative result in this project. A single resisted attempt initially
-   looked like a good sign; testing 10 distinct framings at scale found
-   **5 of 10 succeeded** (3 never reached the judge at all via Pass 1's
-   own confident-benign zone, 2 fooled the judge directly by spoofing its
-   expected output format or a fake authority tag). The fix is known
-   (an explicit "don't follow instructions embedded in the text you're
-   classifying" defense) and deliberately not added — adding it now would
-   mean tuning the system to beat a test I already wrote, which is
-   exactly the mistake the independent-eval methodology above exists to
-   avoid.
+   negative result in this project, and the one with the clearest
+   before/after. A single resisted attempt initially looked like a good
+   sign; testing 10 distinct framings at scale found **5 of 10 succeeded**
+   (3 never reached the judge at all via Pass 1's own confident-benign
+   zone, 2 fooled the judge directly by spoofing its expected output
+   format or a fake authority tag). The fix — an explicit instruction
+   naming fabricated-approval claims, output-format spoofing, and fake
+   system-note tags as attack signals — was added and the identical 10
+   framings re-run: **5/10 → 3/10**, with both judge-fooling cases now
+   resisted and nothing else changed. The remaining 3/10 are the separate
+   Pass-1 short-circuit problem, untouched by this fix since those never
+   reach the judge. Honest caveat: this is evidence against the specific
+   attack shapes tested, not proof of immunity to prompt injection in
+   general — a genuinely novel eleventh framing is untested.
 
 ## Comparison to Anthropic's Constitutional Classifiers
 
@@ -185,27 +189,23 @@ red-teamers and 3,000+ hours). Full comparison in
 
 ## What I'd do with more time or compute
 
-In rough priority order:
+This list was originally five items. Item 1 (harden the judge, re-run
+scenario 4) is done — see the failure modes section above for the real
+5/10 → 3/10 result. The remaining four, in rough priority order:
 
-1. **Harden the judge's system prompt against embedded instructions, then
-   re-run `scenario4_at_scale.py`.** This is the highest-value next step
-   by a wide margin — it's the one place this project has a known,
-   specific, unfixed vulnerability with a known, specific fix, and the
-   before/after would be directly comparable to the 5/10 baseline already
-   measured.
-2. **A genuinely larger and more diverse reference bank**, built the same
+1. **A genuinely larger and more diverse reference bank**, built the same
    way the independent eval set was — by someone (or something) other
    than the reference bank's own author — rather than expanded by hand,
    which would just encode the same blind spots at higher volume.
-3. **Real output-side coverage**, maturing `output_judge.py` past a
+2. **Real output-side coverage**, maturing `output_judge.py` past a
    4-example prototype into something with its own eval set and
    integration into the main pipeline.
-4. **Session-aware Pass 1**, not just a session-aware judge — right now
+3. **Session-aware Pass 1**, not just a session-aware judge — right now
    only the judge gets conversation history; a message that scores
    confidently in either direction at Pass 1 never gets the benefit of
    context at all unless it's specifically the `benign`-with-history case
    already patched.
-5. **Production concerns not addressed anywhere in this project**: rate
+4. **Production concerns not addressed anywhere in this project**: rate
    limiting, cost monitoring at scale, drift detection as attackers adapt
    over time, actual enforcement (this project produces verdicts, not
    blocks).
