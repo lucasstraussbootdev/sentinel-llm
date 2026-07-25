@@ -22,8 +22,9 @@ Most of this project isn't the detector itself, it's trying to break it and bein
 - A short injected instruction hidden inside a long, otherwise-normal message used to score confidently "safe" and never even get a second look. Fixed by scoring the message sentence-by-sentence instead of as one block.
 - I had a separate Claude instance — no visibility into how this project works, no access to the reference examples — write its own attacks from scratch. Recall dropped from 100% to 50%. That's the real number; the 100% was just this system recognizing its own author's writing style.
 - I tried ten different ways to talk the Claude-based judge into ignoring its own instructions. Five worked. I know what the fix is (tell it explicitly not to follow instructions embedded in the text it's classifying) and haven't added it yet, on purpose — adding it now would mean tuning the system to beat a test I already wrote, instead of getting an honest read on how it holds up.
+- Swapped Pass 1's embedding model for Voyage AI (Anthropic doesn't have their own — Voyage is who they actually recommend). First attempt gave ~100% false positives, because different embedding models score similarity on completely different scales and I'd reused the old thresholds. Fixed by calibrating each backend separately. Real result: Voyage is modestly better on the hard eval set, but it's not a clean win — it escalates more messages to the paid judge, so "better" comes with a real cost tradeoff, not a free upgrade.
 
-Full writeups: `FAILURE_ANALYSIS.md` (the red-team scenarios and fixes) and `INDEPENDENT_EVAL.md` (the blind-attack result above).
+Full writeups: `FAILURE_ANALYSIS.md` (the red-team scenarios and fixes), `INDEPENDENT_EVAL.md` (the blind-attack result above), `EMBEDDING_BACKEND_COMPARISON.md` (the Voyage comparison).
 
 ## Running it
 
@@ -53,12 +54,14 @@ pytest                    # regression tests (judge tests skip without an API ke
 | `judge.py` | Pass 2 — Claude classifies intent for anything ambiguous |
 | `normalize.py` | decodes base64/ROT13/leetspeak/homoglyph obfuscation before scoring |
 | `chunking.py` | splits messages into sentence windows so short attacks don't get diluted |
+| `encoders.py` | pluggable Pass-1 embedding backend — free local model, or Voyage AI |
 | `sentinel.py` | wires it together (`Sentinel`, `ConversationSentinel`) |
 | `output_judge.py` | early prototype — same idea, applied to the model's *outgoing* response |
 | `eval.py` / `hybrid_eval.py` | accuracy against a hand-written eval set |
 | `independent_eval.py` | accuracy against the blind, independently-written eval set |
 | `red_team.py` / `scenario4_at_scale.py` | the adversarial testing |
 | `threshold_sweep.py` | grid search over thresholds and chunk size |
+| `embedding_backend_comparison.py` | local model vs. Voyage, at each one's own calibrated thresholds |
 
 ## What this isn't
 

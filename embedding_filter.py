@@ -26,14 +26,25 @@ the max. This targets a different failure mode than decoding: a short
 injected instruction sitting inside a long benign message (e.g. a "document"
 to summarize) that gets diluted when the whole message is embedded as one
 vector. See FAILURE_ANALYSIS.md scenario 1.
+
+The actual embedding step is pluggable (see encoders.py): LocalEncoder (the
+original, free, runs-on-your-machine default) or VoyageEncoder (Anthropic's
+own recommended embeddings provider -- see EMBEDDING_BACKEND_COMPARISON.md
+for a measured comparison of the two, rather than an assumption that the
+paid one is simply better). All candidate texts for a single check() call
+are batch-encoded in one call to the encoder, not one at a time -- this
+doesn't matter much for the local model, but matters a lot for an
+API-backed encoder, where one-at-a-time would mean a network round trip per
+candidate instead of per message.
 """
 import json
 from dataclasses import dataclass
 from pathlib import Path
 
-from sentence_transformers import SentenceTransformer, util
+import numpy as np
 
 from chunking import chunk_text
+from encoders import LocalEncoder
 from normalize import normalize
 
 DATA_PATH = Path(__file__).parent / "reference_bank.jsonl"
@@ -55,7 +66,7 @@ class EmbeddingFilter:
         data_path: Path = DATA_PATH,
         attack_threshold: float = 0.5,
         benign_threshold: float = 0.25,
-        model_name: str = "all-MiniLM-L6-v2",
+        encoder=None,
         use_chunking: bool = True,
         chunk_window: int = 1,
     ):
@@ -66,12 +77,10 @@ class EmbeddingFilter:
         self.benign_threshold = benign_threshold
         self.use_chunking = use_chunking
         self.chunk_window = chunk_window
-        self.model = SentenceTransformer(model_name)
+        self.encoder = encoder or LocalEncoder()
 
         self.texts, self.categories, self.goals = self._load_reference_data(data_path)
-        self.reference_embeddings = self.model.encode(
-            self.texts, normalize_embeddings=True, convert_to_tensor=True
-        )
+        self.reference_embeddings = self.encoder.encode(self.texts)
 
     def _load_reference_data(self, data_path: Path):
         texts, categories, goals = [], [], []
@@ -102,19 +111,14 @@ class EmbeddingFilter:
                 for chunk in chunk_text(text, window=self.chunk_window):
                     candidates.append((label, chunk))
 
-        best = None
-        for technique, text in candidates:
-            query_embedding = self.model.encode(
-                text, normalize_embeddings=True, convert_to_tensor=True
-            )
-            similarities = util.cos_sim(query_embedding, self.reference_embeddings)[0]
-            idx = int(similarities.argmax())
-            score = float(similarities[idx])
-            if best is None or score > best["score"]:
-                best = {"score": score, "idx": idx, "technique": technique}
+        # Batch-encode every candidate for this message in one call.
+        embeddings = self.encoder.encode([text for _, text in candidates])
+        similarities = embeddings @ self.reference_embeddings.T  # (n_candidates, n_reference)
 
-        best_score = best["score"]
-        best_idx = best["idx"]
+        flat_idx = int(np.argmax(similarities))
+        cand_idx, ref_idx = np.unravel_index(flat_idx, similarities.shape)
+        best_score = float(similarities[cand_idx, ref_idx])
+        best_technique = candidates[cand_idx][0]
 
         if best_score >= self.attack_threshold:
             verdict = "attack"
@@ -126,10 +130,10 @@ class EmbeddingFilter:
         return FilterResult(
             verdict=verdict,
             score=best_score,
-            category=self.categories[best_idx],
-            goal=self.goals[best_idx],
-            closest_text=self.texts[best_idx],
-            decode_technique=best["technique"],
+            category=self.categories[ref_idx],
+            goal=self.goals[ref_idx],
+            closest_text=self.texts[ref_idx],
+            decode_technique=best_technique,
         )
 
 
@@ -148,6 +152,3 @@ if __name__ == "__main__":
         print(f"  verdict={result.verdict} score={result.score:.3f}")
         print(f"  category={result.category} goal={result.goal}")
         print(f"  closest match: \"{result.closest_text}\"")
-
-
-
