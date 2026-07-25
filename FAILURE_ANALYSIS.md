@@ -43,6 +43,47 @@ different treatment (see "what would actually fix it" below).
 setup required, and it fails silently — confident `benign`, not even a judge
 escalation to catch it on a second pass.
 
+### Fix attempted: sentence-window chunking (`chunking.py`)
+
+Instead of embedding the whole message as one vector, split it into
+sentence windows (2 sentences per window, sliding) and score each window
+independently, keeping the max across windows and the whole message. A
+short injection can't be diluted by 8 other benign sentences if it's only
+ever compared 2 sentences at a time.
+
+Added `diluted_injection` as a fourth attack subtype in `eval_set.jsonl`
+(3 rows: the report-summary case above, a support-ticket wrapper, a
+translation wrapper) plus two adversarial benign controls designed to
+break chunking specifically — one everyday, harmless use of "ignore" in a
+work email, one meta-discussion of attacks that quotes attack phrasing
+near-verbatim. Ran `eval.py` both ways (`--no-chunking` flag added):
+
+| | no chunking | with chunking |
+|---|---|---|
+| `diluted_injection` recall | 0% (0/3) | 33% (1/3 caught directly as `attack`) |
+| Hard misses (confidently wrong, not just `uncertain`) | 3 | 2 |
+| `benign_suspicious` FPR (hard false positives) | 17% (2/12) | 17% (2/12) — unchanged |
+
+Honest read: chunking converts the report-summary case from a **silent
+miss** (confident `benign`) into an **escalation** (`uncertain`, reaches
+the judge) — real progress, but only one of the three `diluted_injection`
+rows crosses fully into `attack` on its own; the other two still need the
+judge to close it out. It does not introduce new *hard* false positives on
+this eval set, but it does have a real cost: the benign work-email control
+("...please ignore the earlier email about the meeting time...") moved
+from confidently `benign` (0.184) to `uncertain` (0.281) — an everyday,
+harmless use of "ignore" now costs a judge call it didn't before. That's
+the precision-for-recall tradeoff the original write-up predicted, now
+measured instead of assumed.
+
+Two known limitations of the chunker itself, not the underlying idea:
+sentence splitting is regex-based and doesn't cleanly separate a bracketed
+injection clause from a trailing benign sentence when there's no
+whitespace after the closing punctuation (e.g. `...summary.] Revenue grew
+12%.` stays one chunk), and window size (2) was chosen once and not swept
+— a real next step would be sweeping window size against the full eval set
+rather than eyeballing it against a single example.
+
 ## Scenario 2: split payload across two messages
 
 **Messages:**

@@ -13,6 +13,7 @@ mistake. The point of this harness is to see how much load a judge would
 carry, and whether that load falls where it should (mostly on novel_attack
 and benign_suspicious, the hard cases) rather than on the easy ones.
 """
+import argparse
 import json
 from collections import defaultdict
 from pathlib import Path
@@ -20,6 +21,9 @@ from pathlib import Path
 from embedding_filter import EmbeddingFilter
 
 EVAL_PATH = Path(__file__).parent / "eval_set.jsonl"
+
+SUBTYPES = ["known_attack", "novel_attack", "obfuscated_attack", "diluted_injection", "benign_suspicious", "benign_boring"]
+ATTACK_SUBTYPES = ("known_attack", "novel_attack", "obfuscated_attack", "diluted_injection")
 
 
 def load_eval_set(path: Path):
@@ -33,7 +37,11 @@ def load_eval_set(path: Path):
 
 
 def main():
-    filt = EmbeddingFilter()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--no-chunking", action="store_true", help="disable sentence-window chunking, for before/after comparison")
+    args = parser.parse_args()
+
+    filt = EmbeddingFilter(use_chunking=not args.no_chunking)
     rows = load_eval_set(EVAL_PATH)
 
     # subtype -> {"attack": n, "benign": n, "uncertain": n, "total": n}
@@ -58,14 +66,15 @@ def main():
         if result.decode_technique is not None:
             decode_swings.append((row["text"], result.decode_technique, result.verdict, result.score))
 
+    print(f"chunking: {'off' if args.no_chunking else 'on'}\n")
     print(f"{'subtype':<20} {'n':>4} {'attack':>8} {'uncertain':>10} {'benign':>8}   rate")
     print("-" * 70)
-    for subtype in ["known_attack", "novel_attack", "obfuscated_attack", "benign_suspicious", "benign_boring"]:
+    for subtype in SUBTYPES:
         s = stats[subtype]
         total = s["total"]
         if total == 0:
             continue
-        is_attack_subtype = subtype in ("known_attack", "novel_attack", "obfuscated_attack")
+        is_attack_subtype = subtype in ATTACK_SUBTYPES
         if is_attack_subtype:
             rate_label = f"recall={s['attack']/total:.0%}"
         else:

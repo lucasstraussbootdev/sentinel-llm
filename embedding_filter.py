@@ -19,6 +19,13 @@ produces decoded/de-obfuscated variants (base64, ROT13, leetspeak, Cyrillic
 homoglyphs). Every variant is scored against the reference bank and the
 most attack-like result wins -- an obfuscated attack can't hide by having
 its untouched, garbled form embed as "benign".
+
+Each candidate (original + decoded variants) is also split into sentence
+windows via chunking.chunk_text() and scored chunk-by-chunk, again keeping
+the max. This targets a different failure mode than decoding: a short
+injected instruction sitting inside a long benign message (e.g. a "document"
+to summarize) that gets diluted when the whole message is embedded as one
+vector. See FAILURE_ANALYSIS.md scenario 1.
 """
 import json
 from dataclasses import dataclass
@@ -26,6 +33,7 @@ from pathlib import Path
 
 from sentence_transformers import SentenceTransformer, util
 
+from chunking import chunk_text
 from normalize import normalize
 
 DATA_PATH = Path(__file__).parent / "reference_bank.jsonl"
@@ -48,12 +56,14 @@ class EmbeddingFilter:
         attack_threshold: float = 0.5,
         benign_threshold: float = 0.25,
         model_name: str = "all-MiniLM-L6-v2",
+        use_chunking: bool = True,
     ):
         if attack_threshold <= benign_threshold:
             raise ValueError("attack_threshold must be greater than benign_threshold")
 
         self.attack_threshold = attack_threshold
         self.benign_threshold = benign_threshold
+        self.use_chunking = use_chunking
         self.model = SentenceTransformer(model_name)
 
         self.texts, self.categories, self.goals = self._load_reference_data(data_path)
@@ -83,6 +93,12 @@ class EmbeddingFilter:
     def check(self, message: str) -> FilterResult:
         normalized = normalize(message)
         candidates = [(None, message)] + normalized.variants
+
+        if self.use_chunking:
+            for technique, text in list(candidates):
+                label = "chunk" if technique is None else f"chunk+{technique}"
+                for chunk in chunk_text(text):
+                    candidates.append((label, chunk))
 
         best = None
         for technique, text in candidates:

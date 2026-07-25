@@ -31,7 +31,7 @@ class JudgeVerdict(BaseModel):
 
 
 class ClaudeJudge:
-    def __init__(self, model: str = "claude-opus-4-8"):
+    def __init__(self, model: str = "claude-haiku-4-5-20251001"):
         self.client = anthropic.Anthropic()
         self.model = model
 
