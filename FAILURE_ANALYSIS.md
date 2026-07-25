@@ -398,11 +398,20 @@ scope limits, not bugs.
   a filename, an HTTP header, or anything else that reaches the underlying
   model without ever becoming a string handed to Sentinel is invisible by
   construction, not by oversight.
-- **No output-side coverage.** This is an input classifier. A model that
-  leaks something sensitive through ordinary, unprompted inference — no
-  attacker instruction required, just the model connecting dots it
-  shouldn't — is entirely outside what a message classifier can catch, no
-  matter how good it gets.
+- **No output-side coverage — partially prototyped, not closed.**
+  `output_judge.py` is a small mirror of `judge.py` pointed at the
+  assistant's *outgoing* response instead of the user's incoming message:
+  same structured-output pattern, checking for leaked system-prompt
+  content or visible jailbreak compliance (adopting an "unrestricted"
+  persona, agreeing to ignore guidelines). It's correct on 4/4 hand-picked
+  examples (2 leaks, 2 clean) — which is evidence it works at all, not a
+  measured accuracy claim; it has no eval set of its own and is not wired
+  into `Sentinel`/`ConversationSentinel` anywhere. It also can't catch the
+  harder case this bullet originally named: a model leaking something
+  sensitive through **ordinary, unprompted inference** with no attacker
+  instruction and nothing jailbreak-shaped to detect — that's still
+  entirely outside what any message classifier, input or output, can
+  catch.
 - **No enforcement, monitoring, or drift detection.** Sentinel produces a
   verdict; nothing here blocks, redacts, logs to a SIEM, or notices that
   attackers are adapting over time and yesterday's threshold no longer
