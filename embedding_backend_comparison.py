@@ -68,7 +68,7 @@ def main():
 
     backends = [
         ("LocalEncoder (free, all-MiniLM-L6-v2)", LocalEncoder(), 0.5, 0.25),
-        ("VoyageEncoder (voyage-4)", VoyageEncoder(), 0.75, 0.55),
+        ("VoyageEncoder (voyage-4)", VoyageEncoder(), 0.70, 0.45),
     ]
     for backend_name, encoder, attack_t, benign_t in backends:
         print(f"\n{'=' * 70}\n{backend_name}  (attack_t={attack_t}, benign_t={benign_t})\n{'=' * 70}")

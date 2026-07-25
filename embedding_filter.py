@@ -80,7 +80,7 @@ class EmbeddingFilter:
         self.encoder = encoder or LocalEncoder()
 
         self.texts, self.categories, self.goals = self._load_reference_data(data_path)
-        self.reference_embeddings = self.encoder.encode(self.texts)
+        self.reference_embeddings = self.encoder.encode(self.texts, input_type="document")
 
     def _load_reference_data(self, data_path: Path):
         texts, categories, goals = [], [], []
@@ -111,8 +111,15 @@ class EmbeddingFilter:
                 for chunk in chunk_text(text, window=self.chunk_window):
                     candidates.append((label, chunk))
 
-        # Batch-encode every candidate for this message in one call.
-        embeddings = self.encoder.encode([text for _, text in candidates])
+        # Batch-encode every candidate for this message in one call. Deliberately
+        # input_type="document" here too, matching the reference bank -- see
+        # encoders.py and EMBEDDING_BACKEND_COMPARISON.md for why: Voyage's
+        # documented query/document asymmetry, measured directly, made
+        # separation *worse* for this task (Youden's J 79% -> 60%). That
+        # asymmetry is trained for short-question-vs-long-passage retrieval;
+        # this is short-example-vs-short-example similarity, a different
+        # shape of comparison, and testing it beat assuming it.
+        embeddings = self.encoder.encode([text for _, text in candidates], input_type="document")
         similarities = embeddings @ self.reference_embeddings.T  # (n_candidates, n_reference)
 
         flat_idx = int(np.argmax(similarities))

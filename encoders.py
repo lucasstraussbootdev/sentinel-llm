@@ -12,11 +12,21 @@ Free up to 200M tokens/month, then $0.06/million tokens -- for a
 short-message classifier like this one, realistic usage stays inside the
 free tier (see README.md).
 
-Both backends expose the same encode(texts) -> np.ndarray interface so
-embedding_filter.py doesn't need to know which one it's using. Both return
-L2-normalized vectors, so similarity is a plain dot product either way --
-no dependency on sentence_transformers' util.cos_sim, which only works
-with its own tensor type.
+Both backends expose the same encode(texts, input_type=...) -> np.ndarray
+interface so embedding_filter.py doesn't need to know which one it's using.
+Both return L2-normalized vectors, so similarity is a plain dot product
+either way -- no dependency on sentence_transformers' util.cos_sim, which
+only works with its own tensor type.
+
+`input_type` ("document" | "query") matters for VoyageEncoder specifically:
+Voyage's own docs are explicit that retrieval-style comparisons should
+embed the reference/corpus side as "document" and the side being searched
+with as "query" -- asymmetric on purpose, matching how the model was
+trained, and they say not to omit it. The first version of this file
+ignored that and embedded everything as "document", including the
+incoming message being checked. LocalEncoder has no such concept and
+just ignores the argument -- kept on both classes so embedding_filter.py
+can call every backend the same way.
 """
 import numpy as np
 from dotenv import load_dotenv
@@ -29,7 +39,7 @@ class LocalEncoder:
         from sentence_transformers import SentenceTransformer
         self.model = SentenceTransformer(model_name)
 
-    def encode(self, texts: list[str]) -> np.ndarray:
+    def encode(self, texts: list[str], input_type: str | None = None) -> np.ndarray:
         embeddings = self.model.encode(texts, normalize_embeddings=True)
         return np.asarray(embeddings)
 
