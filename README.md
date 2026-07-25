@@ -2,6 +2,8 @@
 
 A prompt-injection / jailbreak detector for LLM apps. You send it a message before it reaches your actual model, and it tells you whether the message is trying to manipulate the system.
 
+**Start with [`WRITEUP.md`](WRITEUP.md)** if you want the full story in one place — threat model, design, eval methodology, results, and the red-team findings, including the ones that are still unfixed on purpose. This README is the quick version.
+
 It's two stages. First, a free embedding-similarity check against a small set of known attacks — instant, no API call, resolves most messages on its own. Anything it's not confident about gets sent to Claude, which reasons about intent instead of just matching vocabulary (the fast check alone tends to flag things like "I'm a security researcher studying prompt injection" as an attack just because it uses the word "injection" — the judge stage exists specifically to fix that).
 
 ```python
@@ -50,6 +52,7 @@ pytest                    # regression tests (judge tests skip without an API ke
 
 | File | What it does |
 |---|---|
+| `WRITEUP.md` | the full narrative — start here |
 | `embedding_filter.py` | Pass 1 — similarity check against `reference_bank.jsonl` |
 | `judge.py` | Pass 2 — Claude classifies intent for anything ambiguous |
 | `normalize.py` | decodes base64/ROT13/leetspeak/homoglyph obfuscation before scoring |
