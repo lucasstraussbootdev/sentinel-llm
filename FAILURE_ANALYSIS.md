@@ -123,6 +123,25 @@ pipeline has no session state by construction, so this class of attack is a
 property of the deployment surface, not something a better filter or a
 smarter judge threshold can close.
 
+### Fix attempted: `ConversationSentinel` (`sentinel.py`)
+
+Added a thin stateful wrapper around `Sentinel` that keeps a rolling window
+of the last 5 raw messages and passes them to the judge as explicit
+prior-turn context (`judge.py`'s `judge()` now takes an optional `history`
+list, rendered as "Prior turns in this conversation, oldest first" ahead of
+the current message). Pass 1 deliberately does *not* get history — deciding
+how to score a whole conversation's worth of embedding similarity (sum?
+average? window?) is a harder problem than a rolling-window text prompt for
+the judge, and out of scope here. `red_team.py` scenarios 2 and 3 now run
+through `ConversationSentinel` instead of bare `Sentinel`, so re-running the
+script once credits are available *is* the real test — no further code
+changes needed.
+
+**Still unresolved:** this is a code fix, not a validated one. Without API
+access there's no way to confirm the judge actually uses the history to
+catch turn 2/3's extraction intent rather than ignoring it — the prompt
+change is a reasonable bet, not a measured result.
+
 ## Scenario 3: multi-turn trust-building escalation
 
 **Messages:**
@@ -145,7 +164,7 @@ from turns 1–2 make it look like a harmless creative-writing question?
 **Taxonomy gap exposed:** same as scenario 2 — `multi_turn` exists as a label
 but not as a first-class eval input shape.
 
-**Severity:** same structural caveat as scenario 2.
+**Severity:** same structural caveat as scenario 2 — same `ConversationSentinel` fix applies and is wired into `red_team.py`, same "unvalidated until credits" caveat.
 
 ## Root cause, stated once
 
@@ -156,16 +175,21 @@ whole-message embedding similarity dilutes short injections buried in long
 benign-looking content. Both are honest architectural limits of a
 "classify one string" design, not bugs in the classification logic itself.
 
-## What would actually fix it (not implemented — out of scope for this pass)
+## What's fixed, what's still open
 
-- **Session state:** carry a rolling summary or the last N turns into both
-  the embedding check (e.g. embed a window, not just the latest message) and
-  the judge's context, so scenario 2/3-style setups aren't evaluated blind.
-- **Segment-level scanning for scenario 1:** for any message that wraps
-  external/quoted content (a "document," retrieved text, tool output), score
-  chunks of that content independently rather than the message as one vector
-  — closer to how the decode/normalize layer already treats obfuscated
-  substrings, applied to semantic dilution instead of encoding.
-- **Re-run scenarios 2 and 3 once API credit is available**, to replace "would
-  escalate to Pass 2" with an actual judge verdict — this analysis is
-  incomplete without that data point.
+- **Scenario 1 (dilution):** `chunking.py` implemented and measured —
+  `diluted_injection` recall went 0% → 33% direct catch, and the
+  smoking-gun case moved from a silent confident-`benign` miss to a correct
+  `uncertain` escalation. Not fully solved (2 of 3 rows still rely on the
+  judge to close them out), and the sentence splitter has known edge cases
+  (see the chunking write-up above).
+- **Scenarios 2/3 (statelessness):** `ConversationSentinel` implemented
+  (rolling window of prior turns, passed to the judge as context) and wired
+  into `red_team.py`. Pass 1 still evaluates only the current message —
+  windowed/summed embedding similarity across a conversation was judged out
+  of scope for this pass.
+- **Still blocking real validation of both fixes:** API credit. Every
+  number above for scenarios 2/3 is "would escalate," not a judge verdict —
+  re-running `red_team.py` once credits are available replaces that with
+  real data, and is the single most important thing left to do on this
+  project before its numbers can be trusted end to end.
