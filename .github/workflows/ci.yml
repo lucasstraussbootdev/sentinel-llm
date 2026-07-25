@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pytest
+
+      - name: Run tests
+        # ANTHROPIC_API_KEY is intentionally not set here, so tests/test_judge.py's
+        # live-API tests are skipped -- this keeps CI free and fast, running only
+        # the deterministic Pass 1 regression suite in tests/test_pass1.py.
+        # To also run the judge tests on every push, add ANTHROPIC_API_KEY as a
+        # repo secret (Settings -> Secrets and variables -> Actions) and uncomment
+        # the env block below.
+        # env:
+        #   ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: pytest -v
