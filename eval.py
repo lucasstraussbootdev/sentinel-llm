@@ -39,6 +39,7 @@ def main():
     # subtype -> {"attack": n, "benign": n, "uncertain": n, "total": n}
     stats = defaultdict(lambda: defaultdict(int))
     misses = []
+    decode_swings = []  # rows where a decoded/normalized variant beat the raw original
 
     for row in rows:
         result = filt.check(row["text"])
@@ -54,14 +55,17 @@ def main():
         if wrong:
             misses.append((row["text"], row["label"], result.verdict, result.score))
 
+        if result.decode_technique is not None:
+            decode_swings.append((row["text"], result.decode_technique, result.verdict, result.score))
+
     print(f"{'subtype':<20} {'n':>4} {'attack':>8} {'uncertain':>10} {'benign':>8}   rate")
     print("-" * 70)
-    for subtype in ["known_attack", "novel_attack", "benign_suspicious", "benign_boring"]:
+    for subtype in ["known_attack", "novel_attack", "obfuscated_attack", "benign_suspicious", "benign_boring"]:
         s = stats[subtype]
         total = s["total"]
         if total == 0:
             continue
-        is_attack_subtype = subtype in ("known_attack", "novel_attack")
+        is_attack_subtype = subtype in ("known_attack", "novel_attack", "obfuscated_attack")
         if is_attack_subtype:
             rate_label = f"recall={s['attack']/total:.0%}"
         else:
@@ -75,6 +79,14 @@ def main():
             print(f"  [{label} -> {verdict}, score={score:.3f}] {text}")
     else:
         print("No hard misses (everything wrong at worst landed in 'uncertain').")
+
+    print()
+    if decode_swings:
+        print(f"Decode/normalize changed the winning candidate: {len(decode_swings)}")
+        for text, technique, verdict, score in decode_swings:
+            print(f"  [{technique} -> {verdict}, score={score:.3f}] {text[:70]}")
+    else:
+        print("Decode/normalize never changed the winning candidate on this eval set.")
 
 
 if __name__ == "__main__":

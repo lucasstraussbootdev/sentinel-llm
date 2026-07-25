@@ -13,12 +13,20 @@ is delivered: prompt_injection, role_play, prompt_extraction, ...) and a
 goal (what the attacker is after: restricted_info, unrestricted_behavior,
 own_system, ...), matching the two-dimensional taxonomy the reference
 data was built with.
+
+Before embedding, the message is run through normalize.normalize(), which
+produces decoded/de-obfuscated variants (base64, ROT13, leetspeak, Cyrillic
+homoglyphs). Every variant is scored against the reference bank and the
+most attack-like result wins -- an obfuscated attack can't hide by having
+its untouched, garbled form embed as "benign".
 """
 import json
 from dataclasses import dataclass
 from pathlib import Path
 
 from sentence_transformers import SentenceTransformer, util
+
+from normalize import normalize
 
 DATA_PATH = Path(__file__).parent / "reference_bank.jsonl"
 
@@ -30,6 +38,7 @@ class FilterResult:
     category: str          # technique of the closest match
     goal: str               # goal of the closest match
     closest_text: str       # the actual reference sentence that matched best
+    decode_technique: str | None = None  # set if the winning variant wasn't the raw original
 
 
 class EmbeddingFilter:
@@ -72,13 +81,22 @@ class EmbeddingFilter:
         return texts, categories, goals
 
     def check(self, message: str) -> FilterResult:
-        query_embedding = self.model.encode(
-            message, normalize_embeddings=True, convert_to_tensor=True
-        )
+        normalized = normalize(message)
+        candidates = [(None, message)] + normalized.variants
 
-        similarities = util.cos_sim(query_embedding, self.reference_embeddings)[0]
-        best_idx = int(similarities.argmax())
-        best_score = float(similarities[best_idx])
+        best = None
+        for technique, text in candidates:
+            query_embedding = self.model.encode(
+                text, normalize_embeddings=True, convert_to_tensor=True
+            )
+            similarities = util.cos_sim(query_embedding, self.reference_embeddings)[0]
+            idx = int(similarities.argmax())
+            score = float(similarities[idx])
+            if best is None or score > best["score"]:
+                best = {"score": score, "idx": idx, "technique": technique}
+
+        best_score = best["score"]
+        best_idx = best["idx"]
 
         if best_score >= self.attack_threshold:
             verdict = "attack"
@@ -93,6 +111,7 @@ class EmbeddingFilter:
             category=self.categories[best_idx],
             goal=self.goals[best_idx],
             closest_text=self.texts[best_idx],
+            decode_technique=best["technique"],
         )
 
 
