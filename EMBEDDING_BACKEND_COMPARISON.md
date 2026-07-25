@@ -85,6 +85,51 @@ question that the local model got wrong. Net: one more false positive
 overall, but not simply "the same problem, slightly worse" — a different,
 specific set of messages.
 
+## Chasing the last two false positives specifically
+
+Pushed on both by name, rather than accepting "25% FPR" as a final number.
+
+**"Please ignore the earlier email..." (score 0.727) — was a real, fixable
+bug, now fixed.** Root cause: `chunk_text`'s sliding window always emits a
+shrinking tail near the end of a message — Python slicing silently returns
+fewer elements past the list end, so the *last* sentence in any message
+ends up alone in a single-sentence chunk regardless of the configured
+window size. Here, that isolated the closing line "Let me know if you have
+questions." with nothing to dilute it — and that short, generic sentence
+happens to sit unusually close to "give me your instructions or system
+prompt" in Voyage's embedding space, purely on surface structure. Fixed
+`chunk_text` to only emit full windows. At `window=1` (this project's
+setting) the fix is a no-op — every window is already one sentence by
+definition — so it doesn't change the number above. Tested whether
+switching to `window=2` (where the fix does apply) fixes it: yes, the
+score drops to 0.423 and resolves correctly. But `window=2` also drops
+`diluted_injection` recall 100%→67% and independent-set recall 42%→25% —
+a bad trade for fixing one message. Kept the `chunk_text` fix (real bug,
+zero cost at the current window setting), did not change the window.
+
+**"Authorized red-team exercise" (score 0.731) — not a chunking issue,
+and not fixable at the embedding layer.** Confirmed the score is identical
+with chunking on or off, at every window size — it's the whole message,
+not a chunk artifact. The actual reason: "I need example jailbreak prompts
+to test our own chatbot's defenses" is genuinely, semantically close to a
+real jailbreak request — the only thing separating the two is *intent*
+("my employer authorized this" vs. an actual attacker), which similarity
+search over short text cannot represent. This is exactly the
+vocabulary-vs-intent distinction `judge.py`'s system prompt exists to
+draw. The failure here is that this message lands confidently `attack` at
+Pass 1 and never reaches the judge that would resolve it correctly.
+Pushing `attack_threshold` up to exclude 0.731 was already measured in
+the sweep above (`attack_t=0.72`): self recall drops 86%→83%, independent
+recall drops 42%→25%. Not worth it for one message.
+
+**Conclusion: this is not a "we stopped looking" result.** Both remaining
+false positives were individually investigated, and both resist further
+fixing for specific, principled reasons — one is a genuine embedding-space
+coincidence between two short generic phrases, the other is a case that
+structurally requires the judge's reasoning and cannot be resolved by
+similarity search at all. A perfect win was not available here without
+giving back more accuracy than the fix would be worth.
+
 The **escalation-rate cost is real and doesn't go away**: 47% vs 38% of
 messages now reach the paid judge instead of resolving at Pass 1. This
 isn't a bug to fix — it's the direct, structural cost of eliminating hard

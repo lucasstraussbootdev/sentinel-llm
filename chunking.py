@@ -35,6 +35,17 @@ def chunk_text(text: str, window: int = 1, min_chars: int = 12) -> list[str]:
     Returns [] for single-sentence text -- nothing to gain from chunking a
     message that's already one unit, and it would just duplicate the
     whole-message candidate the caller already scores.
+
+    Only emits FULL windows -- `sentences[i:i+window]` must actually contain
+    `window` sentences, not fewer. Without this, Python slicing silently
+    returns a shorter tail near the end of the message (e.g. at window=2,
+    the very last sentence has nothing after it to pair with, so it'd be
+    emitted alone as a 1-sentence chunk regardless of window). That produced
+    a real false positive: an isolated closing sentence like "Let me know if
+    you have questions." scored a spurious high match against an unrelated
+    reference example in one embedding backend's space, purely because it
+    ended up chunked alone instead of with its neighbor. At window=1 this
+    check is a no-op (every window is already exactly 1 sentence).
     """
     sentences = split_sentences(text)
     if len(sentences) <= 1:
@@ -42,7 +53,10 @@ def chunk_text(text: str, window: int = 1, min_chars: int = 12) -> list[str]:
 
     chunks = []
     for i in range(len(sentences)):
-        chunk = " ".join(sentences[i:i + window])
+        window_sentences = sentences[i:i + window]
+        if len(window_sentences) < window:
+            continue
+        chunk = " ".join(window_sentences)
         if len(chunk) >= min_chars:
             chunks.append(chunk)
     return chunks
