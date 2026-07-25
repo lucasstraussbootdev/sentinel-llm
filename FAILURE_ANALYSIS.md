@@ -320,6 +320,36 @@ the whole eval set, or route Pass-1-confident-`attack` verdicts through the
 judge too when the reference-bank match itself is thin (single nearest
 neighbor, no corroborating matches).
 
+## Fix: Pass-1 confident-benign short-circuit, when history exists
+
+Both the independent eval and scenario 4 at scale converge on the same root
+cause: `Sentinel.check()` returns immediately on any confident Pass-1
+verdict, `benign` included, without ever consulting the judge — even when
+`ConversationSentinel` has real prior-turn context that might have flipped
+the read. `sentinel.py` now special-cases this: **if history is non-empty
+and Pass 1 says `benign`, that verdict is downgraded to `uncertain` and
+escalated anyway.** Confident `attack` verdicts still short-circuit — no
+reason to pay for a judge call to confirm something Pass 1 is already sure
+is bad.
+
+Verified directly: the "Opposite Day" reverse-psychology message from the
+independent eval set scores `benign` at Pass 1 alone (0.223) and is missed
+with no history. With a single unrelated prior turn present, the same
+message now escalates and the judge correctly returns `attack` (category:
+"jailbreak roleplay with reverse psychology").
+
+**Scope of this fix, stated precisely so it isn't oversold:** it only
+closes the gap for messages sent through `ConversationSentinel` with
+non-empty history. It does **nothing** for the harder, more common case —
+a single, standalone message with no prior turns, which is what caused
+6 of the 7 independent-eval misses and all 3 of scenario 4's Pass-1
+short-circuits. That's a different problem (Pass 1's confident zones are
+too wide in general, not specifically because history exists) and isn't
+fixed here — it's the natural next question for a threshold sweep, since
+narrowing `benign_threshold` globally is the more general version of the
+same fix, at the cost of more judge calls for every deployment, not just
+conversational ones.
+
 ## What's fixed, what's still open
 
 - **Scenario 1 (dilution):** `chunking.py` implemented and measured, then

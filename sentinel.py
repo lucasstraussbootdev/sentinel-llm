@@ -17,6 +17,16 @@ but the sequence does. Pass 1 still only ever sees the current message --
 only the judge gets history, since deciding whether a whole conversation's
 worth of embedding similarity should be summed, averaged, or windowed is a
 harder problem than this project takes on.
+
+When history is non-empty, a Pass-1 "benign" verdict does NOT short-circuit
+straight to a final answer -- it's downgraded to "uncertain" and sent to
+the judge anyway. This exists because of a gap INDEPENDENT_EVAL.md and
+scenario4_at_scale.py both surfaced: Pass 1's confident-benign zone lets a
+message skip the judge entirely, so a history-aware judge can't help if the
+current turn alone scores confidently benign -- exactly what a message
+crafted to look innocent in isolation would do. Confident "attack" verdicts
+still short-circuit; there's no reason to pay for a judge call to confirm
+something Pass 1 is already sure is bad.
 """
 from collections import deque
 from dataclasses import dataclass
@@ -43,7 +53,8 @@ class Sentinel:
     def check(self, message: str, history: list[str] | None = None) -> SentinelResult:
         pass1 = self.embedding_filter.check(message)
 
-        if pass1.verdict != "uncertain":
+        confident_benign_with_history = pass1.verdict == "benign" and history
+        if pass1.verdict != "uncertain" and not confident_benign_with_history:
             return SentinelResult(
                 verdict=pass1.verdict,
                 stage="embedding",
