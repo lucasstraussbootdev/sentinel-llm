@@ -131,12 +131,31 @@ similarity search at all. A perfect win was not available here without
 giving back more accuracy than the fix would be worth.
 
 The **escalation-rate cost is real and doesn't go away**: 47% vs 38% of
-messages now reach the paid judge instead of resolving at Pass 1. This
-isn't a bug to fix — it's the direct, structural cost of eliminating hard
-misses when the attack/benign score distributions genuinely overlap. You
-cannot have both zero hard misses and a narrow uncertain zone when the
-classes aren't cleanly separable; calibrating away hard misses necessarily
-widens the band of cases sent to the judge.
+messages now reach the paid judge instead of resolving at Pass 1.
+
+The natural assumption is that this is because Voyage's scores are
+messier — attack and benign messages overlapping more, forcing a wider
+safety margin. Checked that directly rather than asserting it, and it's
+backwards: measuring `benign_max_score - attack_min_score` on
+`eval_set.jsonl` (a raw overlap width — smaller is better separation),
+
+| | Local | Voyage |
+|---|---|---|
+| Attack/benign score overlap | 0.368 | **0.160** |
+
+Voyage separates attack from benign *better* than the local model, not
+worse. The real reason for the higher escalation rate: Voyage's
+`benign_threshold` (0.45) was calibrated specifically and rigorously to
+guarantee **zero hard misses** on both eval sets — swept down until no
+attack score fell below it, on either `eval_set.jsonl` or
+`independent_eval_set.jsonl`. The local model's original thresholds
+(0.5/0.25) were never held to that same bar; they're the early, less
+rigorously-tested values this whole investigation started from. So the
+wider "uncertain" zone isn't an inherent property of Voyage's embedding
+space — it's what a deliberately more careful calibration standard,
+applied evenly, actually costs. Applying that same zero-hard-miss standard
+to the local model would likely widen its own uncertain zone too; it just
+was never checked against that bar in the first place.
 
 ## What this is NOT a test of
 
