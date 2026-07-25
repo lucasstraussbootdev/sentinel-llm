@@ -1,4 +1,13 @@
-# Independent eval: recall drops from 100% to 50%
+# Independent eval: recall drops from 100% to 50% (later recovered to 67%)
+
+**Update, after `threshold_sweep.py`:** switching the chunking window size
+from 2 to 1 (see `FAILURE_ANALYSIS.md`'s chunking section) recovered some
+of this gap on its own, with no other changes — independent-set recall on
+the full live pipeline is now **67% (8/12)**, up from 50%, and benign
+accuracy held steady at 88%. Still well below the self-authored set's 100%,
+which is the expected and honest shape of this result: a real fix on
+real data, not a full close of the gap. Original numbers below are kept
+as written, since they're what motivated the fix.
 
 Every number in `eval_set.jsonl` and `hybrid_eval.py` up to this point was
 scored against an eval set written by the same person (working through me,

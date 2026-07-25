@@ -57,6 +57,7 @@ class EmbeddingFilter:
         benign_threshold: float = 0.25,
         model_name: str = "all-MiniLM-L6-v2",
         use_chunking: bool = True,
+        chunk_window: int = 1,
     ):
         if attack_threshold <= benign_threshold:
             raise ValueError("attack_threshold must be greater than benign_threshold")
@@ -64,6 +65,7 @@ class EmbeddingFilter:
         self.attack_threshold = attack_threshold
         self.benign_threshold = benign_threshold
         self.use_chunking = use_chunking
+        self.chunk_window = chunk_window
         self.model = SentenceTransformer(model_name)
 
         self.texts, self.categories, self.goals = self._load_reference_data(data_path)
@@ -97,7 +99,7 @@ class EmbeddingFilter:
         if self.use_chunking:
             for technique, text in list(candidates):
                 label = "chunk" if technique is None else f"chunk+{technique}"
-                for chunk in chunk_text(text):
+                for chunk in chunk_text(text, window=self.chunk_window):
                     candidates.append((label, chunk))
 
         best = None

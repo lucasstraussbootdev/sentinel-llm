@@ -83,13 +83,19 @@ harmless use of "ignore" now costs a judge call it didn't before. That's
 the precision-for-recall tradeoff the original write-up predicted, now
 measured instead of assumed.
 
-Two known limitations of the chunker itself, not the underlying idea:
+One known limitation of the chunker itself, not the underlying idea:
 sentence splitting is regex-based and doesn't cleanly separate a bracketed
 injection clause from a trailing benign sentence when there's no
 whitespace after the closing punctuation (e.g. `...summary.] Revenue grew
-12%.` stays one chunk), and window size (2) was chosen once and not swept
-— a real next step would be sweeping window size against the full eval set
-rather than eyeballing it against a single example.
+12%.` stays one chunk).
+
+**Window size has since been swept** (`threshold_sweep.py`) instead of left
+at the originally eyeballed value of 2. Window=1 (single sentences, no
+multi-sentence overlap) strictly dominated every other size tested against
+both `eval_set.jsonl` and `independent_eval_set.jsonl`: identical
+false-positive rate, `diluted_injection` recall 33%→67%, independent-set
+recall 0%→8%. The default is now 1 — see `threshold_sweep.py`'s output and
+`chunking.py`'s updated docstring.
 
 **Live result:** with credits available, re-running scenario 1 end to end
 confirms the fix closes the loop, not just the Pass-1 half of it — the
