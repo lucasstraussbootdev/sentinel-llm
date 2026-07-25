@@ -2,7 +2,7 @@
 
 A prompt-injection / jailbreak detector for LLM apps. You send it a message before it reaches your actual model, and it tells you whether the message is trying to manipulate the system.
 
-It's two stages. First, a cheap embedding-similarity check against a small set of known attacks — instant, free, resolves most messages on its own. Anything it's not confident about gets sent to Claude, which reasons about intent instead of just matching vocabulary (the fast check alone tends to flag things like "I'm a security researcher studying prompt injection" as an attack just because it uses the word "injection" — the judge stage exists specifically to fix that).
+It's two stages. First, a free embedding-similarity check against a small set of known attacks — instant, no API call, resolves most messages on its own. Anything it's not confident about gets sent to Claude, which reasons about intent instead of just matching vocabulary (the fast check alone tends to flag things like "I'm a security researcher studying prompt injection" as an attack just because it uses the word "injection" — the judge stage exists specifically to fix that).
 
 ```python
 from sentinel import Sentinel
