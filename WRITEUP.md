@@ -101,6 +101,8 @@ That 50% is the real number this project should be judged on, not the
 | Chunk window swept 2→1 | dilution fix, retuned | independent-set recall (full pipeline) **50% → 67%**, no FPR cost |
 | History-aware short-circuit fix | Pass 1 skipping the judge even with conversation context | confirmed catch of an attack that scored confidently `benign` alone, correctly escalated once prior turns exist |
 | Voyage AI embedding backend, properly calibrated | Pass 1 accuracy ceiling | independent-set recall **8% → 42%** (5x), independent FPR **12% → 0%** |
+| Reference bank expanded 15→40, independently written | Pass 1 coverage | independent-set recall (local backend) **67% → 92%** (11/12), benign accuracy unchanged |
+| Judge hardened against embedded instructions | prompt injection targeting the judge itself | scenario 4 at scale: **5/10 → 3/10** attacks succeed |
 
 ### Full hybrid pipeline (self-authored eval set, local backend)
 
@@ -189,23 +191,29 @@ red-teamers and 3,000+ hours). Full comparison in
 
 ## What I'd do with more time or compute
 
-This list was originally five items. Item 1 (harden the judge, re-run
-scenario 4) is done — see the failure modes section above for the real
-5/10 → 3/10 result. The remaining four, in rough priority order:
+This list was originally five items. Two are done:
 
-1. **A genuinely larger and more diverse reference bank**, built the same
-   way the independent eval set was — by someone (or something) other
-   than the reference bank's own author — rather than expanded by hand,
-   which would just encode the same blind spots at higher volume.
-2. **Real output-side coverage**, maturing `output_judge.py` past a
+- **Harden the judge, re-run scenario 4** — see the failure modes section
+  above for the real 5/10 → 3/10 result.
+- **A genuinely larger and more diverse reference bank**, built the same
+  way the independent eval set was — a fresh subagent with zero visibility
+  into this project, writing 25 new attack examples independently.
+  Reference bank grew 15→40; independent-set recall **67% → 92%**. The one
+  remaining miss (an acrostic hiding a command inside a poem) stumped the
+  judge too, not just Pass 1 — a genuinely hard structural case, not a
+  reference-bank coverage gap. Full detail in `INDEPENDENT_EVAL.md`.
+
+The remaining three, in rough priority order:
+
+1. **Real output-side coverage**, maturing `output_judge.py` past a
    4-example prototype into something with its own eval set and
    integration into the main pipeline.
-3. **Session-aware Pass 1**, not just a session-aware judge — right now
+2. **Session-aware Pass 1**, not just a session-aware judge — right now
    only the judge gets conversation history; a message that scores
    confidently in either direction at Pass 1 never gets the benefit of
    context at all unless it's specifically the `benign`-with-history case
    already patched.
-4. **Production concerns not addressed anywhere in this project**: rate
+3. **Production concerns not addressed anywhere in this project**: rate
    limiting, cost monitoring at scale, drift detection as attackers adapt
    over time, actual enforcement (this project produces verdicts, not
    blocks).

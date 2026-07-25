@@ -1,13 +1,32 @@
-# Independent eval: recall drops from 100% to 50% (later recovered to 67%)
+# Independent eval: recall drops from 100% to 50%, later recovered to 92%
 
-**Update, after `threshold_sweep.py`:** switching the chunking window size
-from 2 to 1 (see `FAILURE_ANALYSIS.md`'s chunking section) recovered some
-of this gap on its own, with no other changes — independent-set recall on
-the full live pipeline is now **67% (8/12)**, up from 50%, and benign
-accuracy held steady at 88%. Still well below the self-authored set's 100%,
-which is the expected and honest shape of this result: a real fix on
-real data, not a full close of the gap. Original numbers below are kept
-as written, since they're what motivated the fix.
+**Update 2, after expanding the reference bank independently:** the
+biggest single recovery. `reference_bank.jsonl` grew from 15 examples (all
+written by this project's author) to 40 — the added 25 written by a fresh
+subagent with the same zero-visibility constraint as the independent eval
+set itself, covering techniques (zero-width-character obfuscation, fake
+system/end-of-message tags, steganographic first-letter instructions,
+authority impersonation, "GODMODE"/"FreeGPT" persona jailbreaks) the
+original 15-example bank had no representation of. Independent-set recall:
+**67% → 92% (11/12)**, benign accuracy unchanged at 88%. The one remaining
+miss is the acrostic-hidden-command poem — even the judge missed it this
+time — a genuinely hard structural case, not a coverage gap in the
+reference bank.
+
+Side effect, also honestly reported: one of the new reference entries (a
+social-engineering example about a "grandmother's thermite recipe") shares
+the word "recipe" with an ordinary benign question ("what's a good recipe
+for banana bread?"), pushing it from confident `benign` into `uncertain`
+purely on vocabulary overlap — not a false positive, just one extra judge
+call. `tests/test_pass1.py` was updated to reflect this honestly rather
+than treating it as a regression to hide.
+
+**Update 1, after `threshold_sweep.py`:** switching the chunking window
+size from 2 to 1 (see `FAILURE_ANALYSIS.md`'s chunking section) recovered
+some of the original gap on its own, with no other changes —
+independent-set recall on the full live pipeline reached **67% (8/12)**,
+up from 50%, benign accuracy 88%. Original numbers below are kept as
+written, since they're what motivated both fixes.
 
 Every number in `eval_set.jsonl` and `hybrid_eval.py` up to this point was
 scored against an eval set written by the same person (working through me,
