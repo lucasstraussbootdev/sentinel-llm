@@ -10,23 +10,22 @@ being answered wrong.
 
 Sentinel.check() itself is stateless -- one message in, one verdict out,
 same as both passes underneath it. ConversationSentinel wraps it with a
-rolling window of prior turns, passed to the judge as context (see
-judge.py). This exists because of FAILURE_ANALYSIS.md scenarios 2/3:
-multi-turn setups where no single turn looks like an attack on its own,
-but the sequence does. Pass 1 still only ever sees the current message --
-only the judge gets history, since deciding whether a whole conversation's
-worth of embedding similarity should be summed, averaged, or windowed is a
-harder problem than this project takes on.
+rolling window of prior turns, passed to both passes as context (see
+judge.py and embedding_filter.py). This exists because of
+FAILURE_ANALYSIS.md scenarios 2/3: multi-turn setups where no single turn
+looks like an attack on its own, but the sequence does.
 
-When history is non-empty, a Pass-1 "benign" verdict does NOT short-circuit
-straight to a final answer -- it's downgraded to "uncertain" and sent to
-the judge anyway. This exists because of a gap INDEPENDENT_EVAL.md and
-scenario4_at_scale.py both surfaced: Pass 1's confident-benign zone lets a
-message skip the judge entirely, so a history-aware judge can't help if the
-current turn alone scores confidently benign -- exactly what a message
-crafted to look innocent in isolation would do. Confident "attack" verdicts
-still short-circuit; there's no reason to pay for a judge call to confirm
-something Pass 1 is already sure is bad.
+Pass 1 is history-aware (embedding_filter.py's check(message, history=...)):
+a confidently-benign current message is downgraded to "uncertain" (forcing
+the judge to look) only if something *in that history* itself scored
+attack-like -- not just because history exists. This replaced an earlier,
+blunter rule (any history at all downgraded a confident-benign verdict),
+which was correctness-safe but defeated Pass 1's entire purpose: every
+message after the first turn of any conversation paid for a judge call
+forever, regardless of whether anything suspicious had actually happened.
+Confident "attack" verdicts still short-circuit either way; there's no
+reason to pay for a judge call to confirm something Pass 1 is already sure
+is bad.
 """
 from collections import deque
 from dataclasses import dataclass
@@ -34,6 +33,7 @@ from typing import Union
 
 from embedding_filter import EmbeddingFilter, FilterResult
 from judge import ClaudeJudge, JudgeVerdict
+from output_judge import OutputJudge, OutputVerdict
 
 
 @dataclass
@@ -49,12 +49,12 @@ class Sentinel:
     def __init__(self):
         self.embedding_filter = EmbeddingFilter()
         self.judge = ClaudeJudge()
+        self.output_judge = OutputJudge()
 
     def check(self, message: str, history: list[str] | None = None) -> SentinelResult:
-        pass1 = self.embedding_filter.check(message)
+        pass1 = self.embedding_filter.check(message, history=history)
 
-        confident_benign_with_history = pass1.verdict == "benign" and history
-        if pass1.verdict != "uncertain" and not confident_benign_with_history:
+        if pass1.verdict != "uncertain":
             return SentinelResult(
                 verdict=pass1.verdict,
                 stage="embedding",
@@ -71,6 +71,17 @@ class Sentinel:
             goal=pass2.goal,
             detail=pass2,
         )
+
+    def check_output(self, response: str) -> OutputVerdict:
+        """Output-side mirror of check(): does the model's own response look
+        like a successful attack already happened (system-prompt leak,
+        visible jailbreak compliance, detailed dangerous-content
+        compliance)? See output_judge.py and output_eval_set.jsonl. No
+        Pass-1-equivalent cheap filter here -- every call goes to the judge,
+        since (unlike incoming messages) there's no reference bank of known
+        leak *shapes* to embed against, only the judge's intent-vs-vocabulary
+        reasoning."""
+        return self.output_judge.check(response)
 
 
 class ConversationSentinel:

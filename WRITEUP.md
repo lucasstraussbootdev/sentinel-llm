@@ -17,17 +17,23 @@ application's real model — for two kinds of attack:
   axes: *technique* (how it's delivered) and *goal* (what it's after —
   restricted info, unrestricted behavior, or the system's own
   configuration).
-- **Attacks on the detector itself**: two of the four red-team scenarios
+- **Attacks on the detector itself**: three of the five red-team scenarios
   in this project turned out to target Sentinel's own components (the
-  embedding filter, the judge) rather than the underlying application —
-  an attack surface I didn't originally design for and only found by
-  trying to break my own system.
+  embedding filter, the input judge, and — added later — the output
+  judge) rather than the underlying application — an attack surface I
+  didn't originally design for and only found by trying to break my own
+  system.
 
 Explicitly out of scope, stated up front rather than discovered late:
 anything that isn't a plain text string handed to `Sentinel.check()`
-(images, files, tool output), and — mostly — what the underlying model
-says back. `output_judge.py` is a small, unvalidated prototype toward the
-latter; it doesn't close that gap.
+(images, files, tool output). What the model says back is no longer
+entirely out of scope — `output_judge.py` is now a tested, wired-in
+component (`Sentinel.check_output()`, `output_eval_set.jsonl`,
+`FAILURE_ANALYSIS.md` scenario 5) — but it only catches the specific
+leak-shaped failures it was built to name (system-prompt leaks, visible
+jailbreak compliance, detailed dangerous-content compliance). A model
+quietly connecting dots it shouldn't in an otherwise unremarkable response
+is still outside what any of this catches.
 
 ## Design
 
@@ -45,7 +51,11 @@ message → normalize (decode obfuscation) → chunk (fight dilution)
   15-example hand-written reference bank. Every candidate — the raw
   message, decoded variants, sentence-level chunks — gets scored, and the
   most attack-like result wins. Backend is pluggable (`encoders.py`): a
-  free local model by default, or Voyage AI (see below).
+  free local model by default, or Voyage AI (see below). Session-aware:
+  optional `history` gets scored through the same pipeline, so a
+  confidently-benign current message only escalates to the judge if
+  something earlier in the conversation actually scored attack-like —
+  not just because history exists at all.
 - **`normalize.py`**: decodes base64, ROT13, leetspeak, and Cyrillic
   homoglyphs before scoring, so an obfuscated attack can't hide by having
   its garbled form embed as benign.
@@ -56,10 +66,17 @@ message → normalize (decode obfuscation) → chunk (fight dilution)
   vocabulary for anything Pass 1 isn't confident about. This is where a
   security-researcher's question about prompt injection gets correctly
   separated from an actual prompt injection attempt.
-- **`sentinel.py`**: `Sentinel` wires the two passes together.
-  `ConversationSentinel` adds a rolling window of prior turns, passed to
-  the judge as context, for attacks that only make sense across multiple
+- **`sentinel.py`**: `Sentinel` wires the two passes together, plus
+  `check_output()` for the output side (see below). `ConversationSentinel`
+  adds a rolling window of prior turns, passed to both Pass 1 and the
+  judge as context, for attacks that only make sense across multiple
   messages.
+- **`output_judge.py`**: same model, same structured-output pattern as
+  Pass 2, opposite direction — classifies the model's own *response*,
+  after the fact, for signs a leak or jailbreak compliance already
+  happened. Exposed as `Sentinel.check_output()`. No Pass-1-equivalent
+  cheap filter here: there's no reference bank of known leak *shapes* to
+  embed a response against, so every call goes straight to the judge.
 
 ## Eval methodology — the part that actually matters most
 
@@ -191,7 +208,7 @@ red-teamers and 3,000+ hours). Full comparison in
 
 ## What I'd do with more time or compute
 
-This list was originally five items. Two are done:
+This list was originally five items. Four are done:
 
 - **Harden the judge, re-run scenario 4** — see the failure modes section
   above for the real 5/10 → 3/10 result.
@@ -202,18 +219,37 @@ This list was originally five items. Two are done:
   remaining miss (an acrostic hiding a command inside a poem) stumped the
   judge too, not just Pass 1 — a genuinely hard structural case, not a
   reference-bank coverage gap. Full detail in `INDEPENDENT_EVAL.md`.
+- **Session-aware Pass 1.** `embedding_filter.py`'s `check()` now takes
+  `history` and scores prior turns through the same normalize/chunk
+  pipeline as the current message. This replaced a blunter rule (any
+  history at all forced a judge call, even for an obviously benign
+  multi-turn conversation) with a real one: a confidently-benign current
+  message only escalates if something *in that history* actually scored
+  attack-like. Verified live: a genuinely benign three-turn conversation
+  now resolves at Pass 1 on turns after the first (previously impossible
+  under the old rule), while `FAILURE_ANALYSIS.md` scenarios 2/3 still
+  correctly escalate and get caught by the judge, unchanged.
+- **Real output-side coverage.** `output_judge.py` now has a 24-row eval
+  set (`output_eval_set.jsonl`), is wired into `Sentinel.check_output()`,
+  and has been red-teamed (`FAILURE_ANALYSIS.md` scenario 5). Eval result:
+  100% recall across all three leak categories, 0% false positives across
+  all three clean categories — but read that with the same caveat
+  `INDEPENDENT_EVAL.md` already taught this project once: it's a
+  self-authored, 24-row eval set, the same size and provenance
+  `eval_set.jsonl` had before a blind version cut its recall in half.
+  There is no blind independent output-side eval set yet — that's the
+  most valuable next step for this specific piece, not a victory lap. The
+  red-team pass is a more honest signal than the eval set: of three
+  attempts to hide a real leak behind safe-sounding framing, the
+  unhardened judge was fooled by all three; after adding an explicit
+  "framing doesn't neutralize content" defense, one is now caught, one
+  remains (a genuinely hard case — a real refusal stance sitting right
+  next to the actual leaked text — not a one-line prompt-engineering miss)
+  and zero new false positives were introduced fixing it.
 
-The remaining three, in rough priority order:
+One item remains:
 
-1. **Real output-side coverage**, maturing `output_judge.py` past a
-   4-example prototype into something with its own eval set and
-   integration into the main pipeline.
-2. **Session-aware Pass 1**, not just a session-aware judge — right now
-   only the judge gets conversation history; a message that scores
-   confidently in either direction at Pass 1 never gets the benefit of
-   context at all unless it's specifically the `benign`-with-history case
-   already patched.
-3. **Production concerns not addressed anywhere in this project**: rate
+1. **Production concerns not addressed anywhere in this project**: rate
    limiting, cost monitoring at scale, drift detection as attackers adapt
    over time, actual enforcement (this project produces verdicts, not
    blocks).

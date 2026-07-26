@@ -36,6 +36,13 @@ are batch-encoded in one call to the encoder, not one at a time -- this
 doesn't matter much for the local model, but matters a lot for an
 API-backed encoder, where one-at-a-time would mean a network round trip per
 candidate instead of per message.
+
+check() optionally takes `history`: prior turns get scored through the same
+normalize/chunk pipeline as the current message (see _best_match), and a
+confidently-benign current message is only downgraded to "uncertain" if
+something in that history actually scored attack-like -- not just because
+history exists. See sentinel.py's module docstring for why this replaced
+an earlier, blunter rule.
 """
 import json
 from dataclasses import dataclass
@@ -101,14 +108,18 @@ class EmbeddingFilter:
 
         return texts, categories, goals
 
-    def check(self, message: str) -> FilterResult:
-        normalized = normalize(message)
-        candidates = [(None, message)] + normalized.variants
+    def _best_match(self, text: str):
+        """Best (score, technique_label, reference_idx) across every normalize/
+        chunk candidate of `text`. Shared by check() for the current message
+        and, for history-aware scoring, for each prior turn -- same pipeline,
+        just applied to more text, not new similarity logic."""
+        normalized = normalize(text)
+        candidates = [(None, text)] + normalized.variants
 
         if self.use_chunking:
-            for technique, text in list(candidates):
+            for technique, t in list(candidates):
                 label = "chunk" if technique is None else f"chunk+{technique}"
-                for chunk in chunk_text(text, window=self.chunk_window):
+                for chunk in chunk_text(t, window=self.chunk_window):
                     candidates.append((label, chunk))
 
         # Batch-encode every candidate for this message in one call. Deliberately
@@ -119,18 +130,37 @@ class EmbeddingFilter:
         # asymmetry is trained for short-question-vs-long-passage retrieval;
         # this is short-example-vs-short-example similarity, a different
         # shape of comparison, and testing it beat assuming it.
-        embeddings = self.encoder.encode([text for _, text in candidates], input_type="document")
+        embeddings = self.encoder.encode([t for _, t in candidates], input_type="document")
         similarities = embeddings @ self.reference_embeddings.T  # (n_candidates, n_reference)
 
         flat_idx = int(np.argmax(similarities))
         cand_idx, ref_idx = np.unravel_index(flat_idx, similarities.shape)
         best_score = float(similarities[cand_idx, ref_idx])
         best_technique = candidates[cand_idx][0]
+        return best_score, best_technique, int(ref_idx)
+
+    def check(self, message: str, history: list[str] | None = None) -> FilterResult:
+        best_score, best_technique, ref_idx = self._best_match(message)
+
+        # Session-aware Pass 1: if the current message alone reads as
+        # confidently benign, check whether anything *earlier* in the
+        # conversation scored attack-like. If so, this could be the payoff
+        # turn of a multi-turn setup (FAILURE_ANALYSIS.md scenarios 2/3) that
+        # happens to look clean in isolation -- downgrade to "uncertain" so
+        # the judge (which does reason over history, see judge.py) gets a
+        # look. If history is clean too, resolve at Pass 1 with no judge
+        # call -- unlike a blanket "any history downgrades" rule, a genuinely
+        # benign multi-turn conversation still gets Pass 1's speed/cost win
+        # on every turn, not just the first.
+        history_score = max((self._best_match(h)[0] for h in history), default=None) if history else None
 
         if best_score >= self.attack_threshold:
             verdict = "attack"
         elif best_score <= self.benign_threshold:
-            verdict = "benign"
+            if history_score is not None and history_score >= self.attack_threshold:
+                verdict = "uncertain"
+            else:
+                verdict = "benign"
         else:
             verdict = "uncertain"
 
